@@ -182,6 +182,14 @@ def extract_email_body(msg):
     except Exception:
         return ""
 
+def safe_search(mail, criteria):
+  status, data = mail.search(None, criteria)
+  if status == "OK":
+      # Ensure data[0] is bytes before splitting
+      return data[0].split() if isinstance(data[0], bytes) else []
+  else:
+      return []
+
 @app.route("/", methods=["GET", "POST"])
 def redeem():
     code = None
@@ -195,8 +203,14 @@ def redeem():
             mail.login(ADMIN_EMAIL, ADMIN_PASS)
             mail.select("inbox")
 
-            status, messages = mail.search(None, f'(SUBJECT "Your sign-in code")')
-            message_ids = messages[0].split()
+            since_date = (datetime.now() - timedelta(days=1)).strftime("%d-%b-%Y")
+          
+            # Search both subjects
+            message_ids1 = safe_search(mail, f'(SINCE {since_date} SUBJECT "Your sign-in code")')
+            message_ids2 = safe_search(mail, f'(SINCE {since_date} SUBJECT "Kod daftar masuk anda")')
+  
+            # Combine both message ID lists
+            message_ids = message_ids1 + message_ids2
 
             matched = False
 
