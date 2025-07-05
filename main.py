@@ -148,7 +148,15 @@ HTML_FORM = """<!DOCTYPE html>
   </div>
 
   <div class="instructions">
-    <h3>Make Sure You Clicked Send Code Before Redeeming It</h3>
+    <h3>How To Use:</h3>
+    <video controls width="600">
+      <source src="https://github.com/moviemembership/sign-in-code/raw/37911e20063a9614b02e63b8dee780ea08882b44/SIGNINCODE.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <ol>
+    <li>Click Send Sign in Code on Netflix</li>
+    <li>Redeem Code Here</li>
+    </ol>
   </div>
 
   <script>
