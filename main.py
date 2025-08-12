@@ -196,7 +196,7 @@ def redeem():
     error = None
 
     if request.method == "POST":
-        user_email = request.form["email"].strip().lower()
+        user_email = request.form["email"].strip()
 
         try:
             mail = imaplib.IMAP4_SSL(IMAP_HOST)
