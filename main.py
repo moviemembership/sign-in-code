@@ -1,5 +1,5 @@
 from flask import Flask, request, render_template_string, redirect
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import imaplib
 import email
 import re
@@ -194,48 +194,64 @@ def safe_search(mail, criteria):
 def redeem():
     code = None
     error = None
+    original_email = ""
 
     if request.method == "POST":
-        user_email = request.form["email"].strip()
-
+        original_email = request.form["email"].strip()
         try:
             mail = imaplib.IMAP4_SSL(IMAP_HOST)
             mail.login(ADMIN_EMAIL, ADMIN_PASS)
             mail.select("inbox")
 
-            since_date = (datetime.now() - timedelta(days=1)).strftime("%d-%b-%Y")
-          
-            # Search both subjects
-            message_ids1 = safe_search(mail, f'(SINCE {since_date} SUBJECT "Your sign-in code")')
-            message_ids2 = safe_search(mail, f'(SINCE {since_date} SUBJECT "Kod daftar masuk anda")')
-  
-            # Combine both message ID lists
-            message_ids = message_ids1 + message_ids2
+            # Search: last 1 day + subjects
+            since_1day = (datetime.utcnow() - timedelta(days=1)).strftime("%d-%b-%Y")
+            search_criteria = f'(SINCE {since_1day} OR (SUBJECT "Your sign-in code") (SUBJECT "Kod daftar masuk anda"))'
+            status, data = mail.uid("search", None, search_criteria)
+            if status != "OK" or not data or not data[0]:
+                error = "No recent sign-in email found."
+                return render_template_string(HTML_FORM, code=code, error=error, email=original_email)
 
-            matched = False
+            uids = data[0].split()
 
-            for msg_id in reversed(message_ids):
-                status, msg_data = mail.fetch(msg_id, "(RFC822)")
-                raw_email = msg_data[0][1]
-                msg = email.message_from_bytes(raw_email)
+            # Prepare UTC-aware cutoff time
+            now_utc = datetime.now(timezone.utc)
+            time_limit_utc = now_utc - timedelta(minutes=15)
 
-                # Check if email is within last 15 minutes
-                date_tuple = email.utils.parsedate_tz(msg["Date"])
-                if date_tuple:
-                    email_time = datetime.fromtimestamp(email.utils.mktime_tz(date_tuple))
-                    if datetime.now() - email_time > timedelta(minutes=15):
-                        continue
+            # Check only newest ~30 messages
+            for uid in reversed(uids[-30:]):
+                # Fetch headers only
+                status, hdr_data = mail.uid("fetch", uid, '(BODY.PEEK[HEADER.FIELDS (DATE SUBJECT TO FROM)])')
+                if status != "OK" or not hdr_data or not hdr_data[0]:
+                    continue
 
-                # Check body for user's email and 4-digit code
-                body = extract_email_body(msg)
-                if user_email in body:
-                    match = re.search(r'\b\d{4}\b', body)
+                msg_hdr = email.message_from_bytes(hdr_data[0][1])
+
+                # --- UTC-aware date parsing ---
+                date_str = msg_hdr.get("Date")
+                date_tuple = email.utils.parsedate_tz(date_str)
+                if not date_tuple:
+                    continue  # skip if no valid date
+
+                sent_ts = email.utils.mktime_tz(date_tuple)  # UTC timestamp
+                sent_dt_utc = datetime.fromtimestamp(sent_ts, tz=timezone.utc)
+
+                # If older than 15 min, stop loop (fast exit)
+                if sent_dt_utc < time_limit_utc:
+                    break
+
+                # Fetch full body only for recent messages
+                status, body_data = mail.uid("fetch", uid, "(BODY.PEEK[])")
+                if status != "OK" or not body_data or not body_data[0]:
+                    continue
+
+                body = extract_email_body(email.message_from_bytes(body_data[0][1]))
+                if original_email.lower() in body.lower():
+                    match = re.search(r"\b\d{4}\b", body)
                     if match:
                         code = match.group(0)
-                        matched = True
                         break
 
-            if not matched:
+            if not code:
                 error = "No recent sign-in email found for this address. Make sure you request it and try again within 15 minutes."
 
             mail.logout()
@@ -243,7 +259,7 @@ def redeem():
         except Exception as e:
             error = f"Error: {str(e)}"
 
-    return render_template_string(HTML_FORM, code=code, error=error, email=user_email if request.method == "POST" else "")
+    return render_template_string(HTML_FORM, code=code, error=error, email=original_email if request.method == "POST" else "")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
