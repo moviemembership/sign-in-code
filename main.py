@@ -15,6 +15,9 @@ HTML_FORM = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <a href="https://shopee.com.my/chloe_1828" class="top-button">New Shopee Link</a>
+  <a href="https://shopee.com.my/chloe_1828" class="top-button">New Shopee Link</a>
+  <a href="https://shopee.com.my/chloe_1828" class="top-button">New Shopee Link</a>
   <title>Redeem Access Code</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
