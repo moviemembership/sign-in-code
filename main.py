@@ -1,6 +1,8 @@
+import os
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+
 from flask import Flask, request, render_template_string
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-import os
 import re
 
 app = Flask(__name__)
