@@ -165,10 +165,17 @@ def get_household_code_from_site(user_email):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage"]
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled"
+                ]
             )
 
-            context = browser.new_context(viewport={"width": 940, "height": 760})
+            context = browser.new_context(
+                viewport={"width": 940, "height": 760},
+                locale="zh-CN"
+            )
             page = context.new_page()
             page.set_default_timeout(20000)
 
@@ -177,40 +184,57 @@ def get_household_code_from_site(user_email):
             page.locator("input").first.fill(user_email)
             page.locator("button").first.click()
 
-            # wait for modal or error
-            page.wait_for_timeout(3000)
+            # wait longer for modal/toast
+            page.wait_for_timeout(5000)
+
             body_text = page.locator("body").inner_text()
 
-            if "尚未获取到邮箱验证码数据" in body_text:
+            # no data toast
+            if "尚未获取到邮箱验证码数据" in body_text or "尚未获取" in body_text:
                 browser.close()
                 return None, "No household code found. Please request the code first."
 
-            if "查询到验证码信息,是否跳转" not in body_text:
-                browser.close()
-                return None, "Verification popup not detected."
+            # Try to click confirm button by all possible methods
+            confirm_clicked = False
+            code_page = page
 
-            # click 确定 by text first, then coordinate fallback
             try:
-                with context.expect_page(timeout=10000) as new_page_info:
+                with context.expect_page(timeout=8000) as new_page_info:
                     page.get_by_text("确定", exact=True).click(timeout=5000)
-
                 code_page = new_page_info.value
-
+                confirm_clicked = True
             except Exception:
+                pass
+
+            if not confirm_clicked:
                 try:
-                    with context.expect_page(timeout=10000) as new_page_info:
-                        # coordinate based on screenshot: blue confirm button area
-                        page.mouse.click(625, 423)
-
+                    with context.expect_page(timeout=8000) as new_page_info:
+                        page.locator("text=确定").last.click(timeout=5000)
                     code_page = new_page_info.value
-
+                    confirm_clicked = True
                 except Exception:
-                    # maybe same tab
-                    page.get_by_text("确定", exact=True).click(timeout=5000)
+                    pass
+
+            if not confirm_clicked:
+                try:
+                    page.locator("text=确定").last.click(timeout=5000)
                     code_page = page
+                    confirm_clicked = True
+                except Exception:
+                    pass
+
+            if not confirm_clicked:
+                # save what Render sees for debugging
+                try:
+                    page.screenshot(path="/tmp/debug_popup.png", full_page=True)
+                except:
+                    pass
+
+                browser.close()
+                return None, "Confirm button not found. Render may be seeing a different page."
 
             code_page.wait_for_load_state("domcontentloaded", timeout=30000)
-            code_page.wait_for_timeout(3000)
+            code_page.wait_for_timeout(4000)
 
             full_text = code_page.locator("body").inner_text()
             full_url = code_page.url
@@ -245,6 +269,14 @@ def outlook_code():
         error=error,
         email=user_email
     )
+
+@app.route("/debug")
+def debug_file():
+    try:
+        with open("/tmp/debug_popup.png", "rb") as f:
+            return f.read(), 200, {"Content-Type": "image/png"}
+    except:
+        return "No debug screenshot yet."
 
 
 if __name__ == "__main__":
