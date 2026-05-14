@@ -200,7 +200,7 @@ def get_household_code_from_site(user_email):
 
             try:
                 with context.expect_page(timeout=8000) as new_page_info:
-                    page.get_by_text("确定", exact=True).click(timeout=5000)
+                    page.get_by_text("OK", exact=True).click(timeout=5000)
                 code_page = new_page_info.value
                 confirm_clicked = True
             except Exception:
