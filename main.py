@@ -165,50 +165,51 @@ def get_household_code_from_site(user_email):
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled"
-                ]
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
 
-            context = browser.new_context()
+            context = browser.new_context(viewport={"width": 940, "height": 760})
             page = context.new_page()
             page.set_default_timeout(20000)
 
-            page.goto("https://yz.naifei.store/#/login")
+            page.goto("https://yz.naifei.store/#/login", wait_until="domcontentloaded")
+
             page.locator("input").first.fill(user_email)
             page.locator("button").first.click()
 
-            page.wait_for_timeout(2000)
+            # wait for modal or error
+            page.wait_for_timeout(3000)
+            body_text = page.locator("body").inner_text()
 
-            text = page.locator("body").inner_text()
-
-            if "尚未获取到邮箱验证码数据" in text:
+            if "尚未获取到邮箱验证码数据" in body_text:
                 browser.close()
                 return None, "No household code found. Please request the code first."
 
-            # Click blue 确定 button inside modal
-            confirm_btn = page.locator("button.el-button--primary:has-text('确定')")
-
-            if confirm_btn.count() == 0:
+            if "查询到验证码信息,是否跳转" not in body_text:
                 browser.close()
-                return None, "Confirm button not found."
+                return None, "Verification popup not detected."
 
-            # The site may open a new tab after clicking 确定
+            # click 确定 by text first, then coordinate fallback
             try:
-                with context.expect_page(timeout=15000) as new_page_info:
-                    confirm_btn.click()
+                with context.expect_page(timeout=10000) as new_page_info:
+                    page.get_by_text("确定", exact=True).click(timeout=5000)
 
                 code_page = new_page_info.value
-                code_page.wait_for_load_state("domcontentloaded", timeout=30000)
 
-            except:
-                # If it opens same tab
-                confirm_btn.click()
-                code_page = page
-                code_page.wait_for_load_state("domcontentloaded", timeout=30000)
+            except Exception:
+                try:
+                    with context.expect_page(timeout=10000) as new_page_info:
+                        # coordinate based on screenshot: blue confirm button area
+                        page.mouse.click(625, 423)
 
+                    code_page = new_page_info.value
+
+                except Exception:
+                    # maybe same tab
+                    page.get_by_text("确定", exact=True).click(timeout=5000)
+                    code_page = page
+
+            code_page.wait_for_load_state("domcontentloaded", timeout=30000)
             code_page.wait_for_timeout(3000)
 
             full_text = code_page.locator("body").inner_text()
