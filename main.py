@@ -163,7 +163,6 @@ HTML_FORM = """
 def get_household_code_from_site(user_email):
     try:
         with sync_playwright() as p:
-
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -173,56 +172,56 @@ def get_household_code_from_site(user_email):
                 ]
             )
 
-            page = browser.new_page()
-
-            # shorter timeout
-            page.set_default_timeout(15000)
+            context = browser.new_context()
+            page = context.new_page()
+            page.set_default_timeout(20000)
 
             page.goto("https://yz.naifei.store/#/login")
-
-            # input email
-            page.locator("input").fill(user_email)
-
-            # click red button
+            page.locator("input").first.fill(user_email)
             page.locator("button").first.click()
 
             page.wait_for_timeout(2000)
 
             text = page.locator("body").inner_text()
 
-            # NO DATA
             if "尚未获取到邮箱验证码数据" in text:
                 browser.close()
                 return None, "No household code found. Please request the code first."
 
-            # popup confirm button
-            confirm_btn = page.locator("button:has-text('确定')")
+            # Click blue 确定 button inside modal
+            confirm_btn = page.locator("button.el-button--primary:has-text('确定')")
 
-            if confirm_btn.count() > 0:
+            if confirm_btn.count() == 0:
+                browser.close()
+                return None, "Confirm button not found."
 
-                with page.expect_popup() as popup_info:
+            # The site may open a new tab after clicking 确定
+            try:
+                with context.expect_page(timeout=15000) as new_page_info:
                     confirm_btn.click()
 
-                popup = popup_info.value
+                code_page = new_page_info.value
+                code_page.wait_for_load_state("domcontentloaded", timeout=30000)
 
-                popup.wait_for_load_state()
+            except:
+                # If it opens same tab
+                confirm_btn.click()
+                code_page = page
+                code_page.wait_for_load_state("domcontentloaded", timeout=30000)
 
-                popup.wait_for_timeout(3000)
+            code_page.wait_for_timeout(3000)
 
-                full_text = popup.locator("body").inner_text()
+            full_text = code_page.locator("body").inner_text()
+            full_url = code_page.url
 
-                match = re.search(r"\b\d{4}\b", full_text)
-
-                browser.close()
-
-                if match:
-                    return match.group(0), None
-
-                return None, "Code not found on verification page."
+            match = re.search(r"\b\d{4}\b", full_text + " " + full_url)
 
             browser.close()
 
-            return None, "Verification popup not found."
+            if match:
+                return match.group(0), None
+
+            return None, "Code page opened, but no 4-digit code found."
 
     except Exception as e:
         return None, f"System error: {str(e)}"
